@@ -3,13 +3,16 @@ package com.broCode.controller;
 import com.broCode.dto.AuthRequest;
 import com.broCode.dto.UserDto;
 import com.broCode.service.AuthService;
-import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.ResponseCookie;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.Duration;
 import java.util.Map;
 
 /**
@@ -22,6 +25,12 @@ import java.util.Map;
 public class UserController {
 
     private final AuthService authService;
+
+    @Value("${app.cookie.secure:false}")
+    private boolean cookieSecure;
+
+    @Value("${app.cookie.same-site:Lax}")
+    private String cookieSameSite;
 
     public UserController(AuthService authService) {
         this.authService = authService;
@@ -44,12 +53,18 @@ public class UserController {
         try {
             var result = authService.login(authRequest);
 
-            // Set Cookie
-            Cookie cookie = new Cookie("token", result.token());
-            cookie.setHttpOnly(true);
-            cookie.setPath("/");
-            cookie.setMaxAge(7 * 24 * 60 * 60); // 7 days
-            response.addCookie(cookie);
+            // Cookie must be cross-site friendly for Vercel(frontend) -> Railway(backend) requests.
+            // In production set: COOKIE_SECURE=true and COOKIE_SAMESITE=None
+            boolean secure = cookieSecure || "None".equalsIgnoreCase(cookieSameSite);
+
+            ResponseCookie cookie = ResponseCookie.from("token", result.token())
+                .httpOnly(true)
+                .secure(secure)
+                .path("/")
+                .maxAge(Duration.ofDays(7))
+                .sameSite(cookieSameSite)
+                .build();
+            response.addHeader(HttpHeaders.SET_COOKIE, cookie.toString());
 
             log.info("User logged in: {}", authRequest.getIdentifier());
             return ResponseEntity.ok(Map.of(
@@ -77,11 +92,15 @@ public class UserController {
 
     @GetMapping("/logout")
     public ResponseEntity<?> logout(HttpServletResponse response) {
-        Cookie cookie = new Cookie("token", null);
-        cookie.setPath("/");
-        cookie.setHttpOnly(true);
-        cookie.setMaxAge(0);
-        response.addCookie(cookie);
+        boolean secure = cookieSecure || "None".equalsIgnoreCase(cookieSameSite);
+        ResponseCookie cookie = ResponseCookie.from("token", "")
+                .httpOnly(true)
+                .secure(secure)
+                .path("/")
+                .maxAge(Duration.ZERO)
+                .sameSite(cookieSameSite)
+                .build();
+        response.addHeader(HttpHeaders.SET_COOKIE, cookie.toString());
         log.info("User logged out");
         return ResponseEntity.ok(Map.of("message", "Logged out successfully", "success", true));
     }

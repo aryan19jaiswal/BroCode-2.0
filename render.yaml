@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: brocode-server
+    env: docker
+    rootDir: server
+    dockerfilePath: ./Dockerfile
+    plan: free
+    autoDeploy: true
+    envVars:
+      - key: PORT
+        value: 1107

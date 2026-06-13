@@ -4,13 +4,24 @@ import com.broCode.model.ChatSessionContext;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.store.memory.chat.ChatMemoryStore;
 
+import java.util.List;
+
+
+
 public interface ChatSessionService extends ChatMemoryStore {
 
-    String startNewChatSession(ChatSessionContext context, String systemPrompt);
+    String startNewChatSession(String systemPrompt);
 
     void addChatMessage(String sessionId, ChatMessage chatMessage);
 
     void validateSessionId(String sessionId);
+
+    /**
+     * Writes a pre-built message list directly into the cache, bypassing
+     * validateSessionId. Used to restore sessions whose TTL has expired by
+     * re-populating them from the MongoDB copy.
+     */
+    void restoreSession(String sessionId, List<ChatMessage> messages);
 
     default String getChatMessageRole(ChatMessage chatMessage){
         return switch (chatMessage.type()){

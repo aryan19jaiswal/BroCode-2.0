@@ -1,5 +1,4 @@
 import type { QuestionDto, ResponseDto } from '@/types';
-import { joinApiUrl } from './apiBase';
 
 /**
  * Streams the AI response using the ReadableStream API.
@@ -13,7 +12,8 @@ export async function streamChat(
   signal?: AbortSignal
 ): Promise<void> {
   try {
-    const res = await fetch(joinApiUrl('/bro/broCode'), {
+    const baseUrl = import.meta.env.VITE_API_URL ?? 'http://localhost:1107/api';
+    const res = await fetch(`${baseUrl}/bro/broCode`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',

@@ -18,6 +18,7 @@ import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 import jakarta.servlet.DispatcherType;
+import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter;
 
 import java.util.Arrays;
 import java.util.List;
@@ -44,7 +45,8 @@ public class SecurityConfig {
     private static final String[] PUBLIC_ENDPOINTS = {
             "/api/user/register",
             "/api/user/login",
-            "/api/user/logout"
+            "/api/user/logout",
+            "/actuator/health"
     };
 
     private final JwtFilter jwtFilter;
@@ -68,6 +70,12 @@ public class SecurityConfig {
                 .csrf(AbstractHttpConfigurer::disable)
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .headers(headers -> headers
+                        .contentSecurityPolicy(csp ->
+                                csp.policyDirectives("default-src 'none'; frame-ancestors 'none'"))
+                        .referrerPolicy(ref ->
+                                ref.policy(ReferrerPolicyHeaderWriter.ReferrerPolicy.STRICT_ORIGIN_WHEN_CROSS_ORIGIN))
+                )
                 .exceptionHandling(ex -> ex
                         .authenticationEntryPoint(authenticationEntryPoint)
                         .accessDeniedHandler(accessDeniedHandler)

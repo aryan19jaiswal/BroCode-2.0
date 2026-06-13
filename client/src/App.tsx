@@ -1,10 +1,12 @@
-import { lazy, Suspense } from 'react';
+import { lazy, Suspense, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { Navbar } from '@/components/layout/Navbar';
 import { ProtectedRoute } from '@/components/layout/ProtectedRoute';
 import { Spinner } from '@/components/ui/Spinner';
+import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
 import { useAuthStore } from '@/stores/authStore';
+import { useChatStore } from '@/stores/chatStore';
 
 /* ── Lazy-loaded pages (code-split per route) ── */
 const LandingPage = lazy(() => import('@/pages/LandingPage'));
@@ -19,7 +21,21 @@ function CatchAll() {
 }
 
 export default function App() {
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const fetchProfile = useAuthStore((s) => s.fetchProfile);
+  const loadSessions = useChatStore((s) => s.loadSessions);
+
+  // On every auth state change (login, page reload with stored auth), verify the
+  // JWT is still valid server-side and hydrate the session list from MongoDB.
+  useEffect(() => {
+    if (isAuthenticated) {
+      fetchProfile();
+      loadSessions();
+    }
+  }, [isAuthenticated, fetchProfile, loadSessions]);
+
   return (
+    <ErrorBoundary>
     <BrowserRouter>
       <div className="min-h-screen bg-surface">
         <Navbar />
@@ -65,5 +81,6 @@ export default function App() {
         }}
       />
     </BrowserRouter>
+    </ErrorBoundary>
   );
 }

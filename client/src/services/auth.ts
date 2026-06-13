@@ -13,7 +13,7 @@ export const authService = {
   },
 
   async logout(): Promise<ApiResponse> {
-    const res = await api.get<ApiResponse>('/user/logout');
+    const res = await api.post<ApiResponse>('/user/logout');
     return res.data;
   },
 

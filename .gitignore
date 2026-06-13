@@ -8,6 +8,7 @@ server/bin/
 server/out/
 server/*.iml
 server/src/main/resources/application-dev.properties
+server/src/main/resources/application-local.properties
 
 # ========================
 # Node / React / Vite

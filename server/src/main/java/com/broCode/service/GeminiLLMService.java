@@ -14,6 +14,8 @@ import com.google.common.util.concurrent.RateLimiter;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
 
 import java.util.List;
 
@@ -24,6 +26,8 @@ public class GeminiLLMService implements LLMService {
     private final GoogleAiGeminiStreamingChatModel geminiStreamingChatModel;
     private final GoogleAiGeminiTokenCountEstimator tokenizer;
     private final ChatMemoryProvider chatMemoryProvider;
+
+    // Global Gemini API quota guards — blocking by nature, but offloaded to boundedElastic (see chatStream).
     private final RateLimiter requestRateLimiter;
     private final RateLimiter tokenRateLimiter;
 
@@ -41,13 +45,11 @@ public class GeminiLLMService implements LLMService {
     ) {
         log.info("Initializing GeminiLLMService with model: {}", geminiModelName);
 
-        // 1. Initialize Tokenizer
         this.tokenizer = GoogleAiGeminiTokenCountEstimator.builder()
                 .apiKey(geminiAPIKey)
                 .modelName(geminiModelName)
                 .build();
 
-        // 2. Initialize Chat Model
         this.geminiStreamingChatModel = GoogleAiGeminiStreamingChatModel.builder()
                 .apiKey(geminiAPIKey)
                 .modelName(geminiModelName)
@@ -57,59 +59,45 @@ public class GeminiLLMService implements LLMService {
                 .allowGoogleSearch(true)
                 .build();
 
-        // 3. Initialize Memory Provider
         this.chatMemoryProvider = sessionId -> TokenWindowChatMemory.builder()
                 .id(sessionId)
                 .maxTokens(128000, tokenizer)
                 .chatMemoryStore(chatSessionService)
                 .build();
 
-        // 4. Initialize Rate Limiters
         this.requestRateLimiter = RateLimiter.create((double) rpm / 60);
         this.tokenRateLimiter = RateLimiter.create((double) tpm / 60);
 
-        // 5. Initialize default Assistant
+        // Cache stateless AiServices instances — building them per-request was wasteful.
+        // State (conversation history) lives in the ChatMemoryStore, not in the AiServices object.
         this.assistant = AiServices.builder(Assistant.class)
                 .chatMemoryProvider(chatMemoryProvider)
                 .streamingChatModel(geminiStreamingChatModel)
                 .build();
     }
 
-    private void acquireLimits(List<ChatMessage> messages){
-        requestRateLimiter.acquire(1);
-        tokenRateLimiter.acquire(tokenizer.estimateTokenCountInMessages(messages));
-    }
-
-    private void acquireLimits(String sessionId, String question){
-        requestRateLimiter.acquire(1);
-        tokenRateLimiter.acquire(tokenizer.estimateTokenCountInMessages(
-                chatMemoryProvider.get(sessionId).messages())+
-                tokenizer.estimateTokenCountInText(question));
-    }
-
     /**
-     * Streams delta tokens (individual chunks) — NOT accumulated text.
-     * Each emission is a single token/chunk from the LLM, which the frontend
-     * appends to build the full response. This is bandwidth-efficient and
-     * matches the industry standard (OpenAI, Anthropic, etc.).
+     * Offloads the blocking RateLimiter.acquire() calls to boundedElastic so they
+     * never pin a Reactor scheduler thread while waiting for the token bucket to refill.
+     * The Gemini streaming itself then runs on LangChain4j's own thread pool.
      */
-    public Flux<String> chatStream(String sessionId, String question){
-        acquireLimits(sessionId, question);
-        log.info("Streaming response for session: {}", sessionId);
-        return this.assistant.chatStream(sessionId, question);
+    @Override
+    public Flux<String> chatStream(String sessionId, String question) {
+        return Mono.fromRunnable(() -> acquireLimits(sessionId, question))
+                .subscribeOn(Schedulers.boundedElastic())
+                .doOnSuccess(ignored -> log.info("Streaming response for session: {}", sessionId))
+                .thenMany(Flux.defer(() -> assistant.chatStream(sessionId, question)));
     }
 
     @Override
     public TokenStream chatTokenStream(String sessionId, String question) {
         acquireLimits(sessionId, question);
-        log.info("Calling BroCode with Memory");
-        return this.assistant.chatTokenStream(sessionId, question);
+        return assistant.chatTokenStream(sessionId, question);
     }
 
     @Override
     public TokenStream chatTokenStream(ContentRetriever contentRetriever, String sessionId, String question) {
         acquireLimits(sessionId, question);
-        log.info("Calling BroCode with Retriever and Memory");
         return AiServices.builder(Assistant.class)
                 .chatMemoryProvider(chatMemoryProvider)
                 .streamingChatModel(geminiStreamingChatModel)
@@ -121,7 +109,6 @@ public class GeminiLLMService implements LLMService {
     @Override
     public TokenStream chatTokenStream(Tools tools, String sessionId, String question) {
         acquireLimits(sessionId, question);
-        log.info("Calling BroCode with Tool and Memory");
         return AiServices.builder(Assistant.class)
                 .chatMemoryProvider(chatMemoryProvider)
                 .streamingChatModel(geminiStreamingChatModel)
@@ -133,7 +120,6 @@ public class GeminiLLMService implements LLMService {
     @Override
     public TokenStream chatTokenStream(ContentRetriever retriever, Tools tools, String sessionId, String question) {
         acquireLimits(sessionId, question);
-        log.info("Calling BroCode with Retriever, Tool and Memory");
         return AiServices.builder(Assistant.class)
                 .chatMemoryProvider(chatMemoryProvider)
                 .streamingChatModel(geminiStreamingChatModel)
@@ -142,7 +128,17 @@ public class GeminiLLMService implements LLMService {
                 .build()
                 .chatTokenStream(sessionId, question);
     }
+
+    private void acquireLimits(String sessionId, String question) {
+        requestRateLimiter.acquire(1);
+        int estimatedTokens = tokenizer.estimateTokenCountInMessages(
+                chatMemoryProvider.get(sessionId).messages())
+                + tokenizer.estimateTokenCountInText(question);
+        tokenRateLimiter.acquire(estimatedTokens);
+    }
+
+    private void acquireLimits(List<ChatMessage> messages) {
+        requestRateLimiter.acquire(1);
+        tokenRateLimiter.acquire(tokenizer.estimateTokenCountInMessages(messages));
+    }
 }
-
-
-

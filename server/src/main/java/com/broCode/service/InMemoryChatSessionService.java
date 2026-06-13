@@ -7,6 +7,7 @@ import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Profile;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -24,6 +25,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * a scheduled cleanup task to prevent memory leaks.
  */
 @Slf4j
+@Profile("local")
 @Component
 public class InMemoryChatSessionService implements ChatSessionService {
 
@@ -34,9 +36,9 @@ public class InMemoryChatSessionService implements ChatSessionService {
     private int sessionTtlMinutes;
 
     @Override
-    public String startNewChatSession(ChatSessionContext context, String systemPrompt) {
+    public String startNewChatSession(String systemPrompt) {
         String sessionId = UUID.randomUUID().toString();
-        chatSessionMap.put(sessionId, new ChatSession(context, List.of(SystemMessage.from(systemPrompt))));
+        chatSessionMap.put(sessionId, new ChatSession(null, new ArrayList<>(List.of(SystemMessage.from(systemPrompt)))));
         touchSession(sessionId);
         log.debug("Created new chat session: {}", sessionId);
         return sessionId;
@@ -82,7 +84,7 @@ public class InMemoryChatSessionService implements ChatSessionService {
     public void deleteMessages(Object sessionId) {
         validateSessionId(sessionId.toString());
         chatSessionMap.computeIfPresent(sessionId.toString(), (key, chatSession) -> {
-            chatSession.getChatHistory().clear();
+            chatSession.setChatHistory(new ArrayList<>());
             return chatSession;
         });
     }
@@ -92,6 +94,13 @@ public class InMemoryChatSessionService implements ChatSessionService {
         validateSessionId(sessionId);
         touchSession(sessionId);
         return chatSessionMap.get(sessionId).getContext();
+    }
+
+    @Override
+    public void restoreSession(String sessionId, List<ChatMessage> messages) {
+        chatSessionMap.put(sessionId, new ChatSession(null, new ArrayList<>(messages)));
+        touchSession(sessionId);
+        log.debug("Restored session {} into memory ({} messages)", sessionId, messages.size());
     }
 
     @Override

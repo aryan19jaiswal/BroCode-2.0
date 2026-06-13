@@ -32,6 +32,19 @@ export interface UserProfile {
   password?: string;
 }
 
+/* ──── Chat sessions (server-persisted) ──── */
+export interface StoredMessage {
+  role: string;
+  content: string;
+}
+
+export interface ChatSessionResponse {
+  id: string;
+  title: string;
+  messages: StoredMessage[];
+  createdAt: number;
+}
+
 /* ──── Chat ──── */
 export interface QuestionDto {
   question: string;

@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import type { ChatMessage, ChatSession } from '@/types';
 import { streamChat } from '@/services/stream';
+import { chatService } from '@/services/chatService';
 
 interface ChatState {
   sessions: ChatSession[];
@@ -9,11 +10,12 @@ interface ChatState {
   abortController: AbortController | null;
 
   // Actions
+  loadSessions: () => Promise<void>;
   sendMessage: (question: string) => Promise<void>;
   stopStreaming: () => void;
   createNewSession: () => void;
   setActiveSession: (id: string) => void;
-  deleteSession: (id: string) => void;
+  deleteSession: (id: string) => Promise<void>;
 }
 
 function generateId(): string {
@@ -26,6 +28,29 @@ export const useChatStore = create<ChatState>((set, get) => ({
   isStreaming: false,
   abortController: null,
 
+  loadSessions: async () => {
+    try {
+      const serverSessions = await chatService.getSessions();
+      set({
+        sessions: serverSessions.map((s) => ({
+          id: s.id,
+          title: s.title,
+          createdAt: s.createdAt,
+          messages: s.messages
+            .filter((m) => m.role !== 'system')
+            .map((m) => ({
+              id: generateId(),
+              role: m.role as 'user' | 'assistant',
+              content: m.content,
+              timestamp: s.createdAt,
+            })),
+        })),
+      });
+    } catch {
+      // Best-effort — empty session list is fine on failure
+    }
+  },
+
   createNewSession: () => {
     set({ activeSessionId: null });
   },
@@ -34,7 +59,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set({ activeSessionId: id });
   },
 
-  deleteSession: (id) => {
+  deleteSession: async (id) => {
+    try {
+      await chatService.deleteSession(id);
+    } catch {
+      // Best-effort — remove from local state regardless
+    }
     set((state) => {
       const sessions = state.sessions.filter((s) => s.id !== id);
       const activeSessionId = state.activeSessionId === id ? null : state.activeSessionId;

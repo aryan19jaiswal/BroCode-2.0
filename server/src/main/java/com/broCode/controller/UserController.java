@@ -1,9 +1,11 @@
 package com.broCode.controller;
 
 import com.broCode.dto.AuthRequest;
-import com.broCode.dto.UserDto;
+import com.broCode.dto.RegisterRequest;
+import com.broCode.dto.UpdateProfileRequest;
 import com.broCode.service.AuthService;
 import jakarta.servlet.http.HttpServletResponse;
+import jakarta.validation.Valid;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
@@ -18,6 +20,10 @@ import java.util.Map;
 /**
  * Controller for User account operations.
  * Handles registration, login, logout, and profile updates.
+ *
+ * Exception handling is delegated entirely to GlobalExceptionHandler — no
+ * try-catch blocks here. Each service method throws a typed exception that
+ * maps to the correct HTTP status code.
  */
 @Slf4j
 @RestController
@@ -37,61 +43,44 @@ public class UserController {
     }
 
     @PostMapping("/register")
-    public ResponseEntity<?> register(@RequestBody UserDto userDto) {
-        try {
-            authService.register(userDto);
-            log.info("New user registered: {}", userDto.getUsername());
-            return ResponseEntity.status(201).body(Map.of("message", "Account created successfully", "success", true));
-        } catch (Exception e) {
-            log.error("Registration failed: {}", e.getMessage());
-            return ResponseEntity.badRequest().body(Map.of("message", e.getMessage(), "success", false));
-        }
+    public ResponseEntity<Map<String, Object>> register(@Valid @RequestBody RegisterRequest request) {
+        authService.register(request);
+        log.info("New user registered: {}", request.getUsername());
+        return ResponseEntity.status(201).body(Map.of("message", "Account created successfully", "success", true));
     }
 
     @PostMapping("/login")
-    public ResponseEntity<?> login(@RequestBody AuthRequest authRequest, HttpServletResponse response) {
-        try {
-            var result = authService.login(authRequest);
+    public ResponseEntity<Map<String, Object>> login(@Valid @RequestBody AuthRequest authRequest,
+                                                     HttpServletResponse response) {
+        var result = authService.login(authRequest);
 
-            // Cookie must be cross-site friendly for Vercel(frontend) -> Railway(backend) requests.
-            // In production set: COOKIE_SECURE=true and COOKIE_SAMESITE=None
-            boolean secure = cookieSecure || "None".equalsIgnoreCase(cookieSameSite);
-
-            ResponseCookie cookie = ResponseCookie.from("token", result.token())
+        boolean secure = cookieSecure || "None".equalsIgnoreCase(cookieSameSite);
+        ResponseCookie cookie = ResponseCookie.from("token", result.token())
                 .httpOnly(true)
                 .secure(secure)
                 .path("/")
                 .maxAge(Duration.ofDays(7))
                 .sameSite(cookieSameSite)
                 .build();
-            response.addHeader(HttpHeaders.SET_COOKIE, cookie.toString());
+        response.addHeader(HttpHeaders.SET_COOKIE, cookie.toString());
 
-            log.info("User logged in: {}", authRequest.getIdentifier());
-            return ResponseEntity.ok(Map.of(
-                    "message", "Logged in successfully",
-                    "success", true,
-                    "username", result.username()
-            ));
-        } catch (Exception e) {
-            log.error("Login failed: {}", e.getMessage());
-            return ResponseEntity.badRequest().body(Map.of("message", e.getMessage(), "success", false));
-        }
+        log.info("User logged in: {}", authRequest.getIdentifier());
+        return ResponseEntity.ok(Map.of(
+                "message", "Logged in successfully",
+                "success", true,
+                "username", result.username()
+        ));
     }
 
     @GetMapping("/profile")
-    public ResponseEntity<?> getProfile() {
-        try {
-            String userId = (String) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
-            String username = authService.getUsername(userId);
-            return ResponseEntity.ok(Map.of("username", username != null ? username : "", "success", true));
-        } catch (Exception e) {
-            log.error("Fetch profile failed: {}", e.getMessage());
-            return ResponseEntity.badRequest().body(Map.of("message", e.getMessage(), "success", false));
-        }
+    public ResponseEntity<Map<String, Object>> getProfile() {
+        String userId = (String) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
+        String username = authService.getUsername(userId);
+        return ResponseEntity.ok(Map.of("username", username, "success", true));
     }
 
-    @GetMapping("/logout")
-    public ResponseEntity<?> logout(HttpServletResponse response) {
+    @PostMapping("/logout")
+    public ResponseEntity<Map<String, Object>> logout(HttpServletResponse response) {
         boolean secure = cookieSecure || "None".equalsIgnoreCase(cookieSameSite);
         ResponseCookie cookie = ResponseCookie.from("token", "")
                 .httpOnly(true)
@@ -105,22 +94,11 @@ public class UserController {
         return ResponseEntity.ok(Map.of("message", "Logged out successfully", "success", true));
     }
 
-    /**
-     * Updates the authenticated user's profile.
-     * Extracts the userId from the SecurityContext (set by JwtFilter).
-     */
     @PatchMapping("/profile")
-    public ResponseEntity<?> updateProfile(@RequestBody UserDto userDto) {
-        try {
-            // The Principal is the userId because AuthService.login used user.getId() for the token subject
-            String userId = (String) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
-            authService.updateUser(userId, userDto);
-
-            log.info("User profile updated for ID: {}", userId);
-            return ResponseEntity.ok(Map.of("message", "Profile updated successfully", "success", true));
-        } catch (Exception e) {
-            log.error("Profile update failed: {}", e.getMessage());
-            return ResponseEntity.badRequest().body(Map.of("message", e.getMessage(), "success", false));
-        }
+    public ResponseEntity<Map<String, Object>> updateProfile(@Valid @RequestBody UpdateProfileRequest request) {
+        String userId = (String) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
+        authService.updateUser(userId, request);
+        log.info("User profile updated for ID: {}", userId);
+        return ResponseEntity.ok(Map.of("message", "Profile updated successfully", "success", true));
     }
 }

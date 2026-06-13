@@ -78,7 +78,7 @@ describe('authStore', () => {
   describe('logout', () => {
     it('clears authentication state', async () => {
       useAuthStore.setState({ isAuthenticated: true, username: 'brodev' });
-      vi.mocked(authService.logout).mockResolvedValue(undefined);
+      vi.mocked(authService.logout).mockResolvedValue({ success: true, message: '' });
 
       await useAuthStore.getState().logout();
 

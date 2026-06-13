@@ -1,85 +1,106 @@
-# 🏗️ Architecture Overview
+# BroCode
 
-The application follows a **monolithic client-server architecture** with clear separation of concerns.
-
----
-
-## 🖥️ Client Layer (`/client`)
-
-- Single Page Application (SPA) built with React + Vite
-- Organized by:
-  - Route-level components
-  - Reusable UI blocks
-  - Application state management
-- Handles authentication using JWT tokens stored client-side
-- Communicates with backend via:
-  - Authentication APIs
-  - Streaming AI responses
-  - General REST calls
+An AI-powered coding assistant that streams answers in real time. Backed by Google Gemini, built on Spring Boot and React 19.
 
 ---
 
-## 🛠️ Server Layer (`/server`)
+## What it does
 
-- Spring Boot REST API serving as the backend core
-- Exposes secured endpoints
-- Implements stateless authentication using JWT
-- Contains AI orchestration layer
-
-### 🔐 Security Layer
-
-- Stateless JWT-based authentication
+- Multi-turn chat with a Gemini LLM that acts as a senior dev mentor
+- Streaming responses token-by-token via SSE
+- Persistent session history — conversations survive page refreshes and server restarts
+- Scoped strictly to software engineering topics (hard rejects off-topic questions)
 
 ---
 
-### 🤖 AI Engine
+## Tech stack
 
-Capabilities:
-- Manages chat sessions
-- Maintains conversational context
-- Executes tools when required
-- Integrates with external LLM providers
-
----
-
-### 🗄️ Data Persistence
-
-- Uses Spring Data JPA
-- Backed by MongoDB and In-Memory Database
+| Layer | Tech |
+|---|---|
+| Frontend | React 19, TypeScript, Vite 6, Zustand 5, TailwindCSS 4, React Router 7 |
+| Backend | Java 21, Spring Boot 3.5, Spring Security, Project Reactor (Flux) |
+| LLM | Google Gemini via LangChain4j 1.11 |
+| Auth | JWT in HttpOnly cookie (JJWT 0.13) |
+| Database | MongoDB Atlas |
+| Session cache | Redis (prod) / JVM in-memory (local dev) |
+| Rate limiting | Bucket4j 8.10 (per-IP on auth, per-user on chat) |
 
 ---
 
-# 🔄 High-Level Flow
+## Running locally
 
-1. User authenticates → JWT issued
-2. Client stores token
-3. Protected routes become accessible
-4. User sends chat prompt
-5. Backend processes via AI Agent layer
-6. Response is streamed back to client
-7. Chat session persisted in database
+**Backend** — port 1107:
+```bash
+cd server
+bash gradlew bootRun
+```
+
+Create `server/src/main/resources/application-local.properties` with:
+```properties
+MONGODB_URI=mongodb+srv://...
+JWT_SECRET=<openssl rand -base64 32>
+GEMINI_API_KEY=...
+```
+
+**Frontend** — port 5173:
+```bash
+cd client
+npm install
+npm run dev
+```
+
+Vite proxies `/api` → `http://localhost:1107`.
 
 ---
 
-# 🧩 Design Characteristics
+## Running tests
 
-- Clean separation of frontend and backend
-- Stateless authentication for scalability
-- Real-time AI response streaming
-- Modular AI agent architecture
-- Repository-based persistence layer
-- Production-ready structure
+```bash
+# Backend — 36 tests (unit + integration with embedded MongoDB)
+cd server && bash gradlew test
+
+# Frontend — 16 tests (Vitest + jsdom)
+cd client && npm test
+```
 
 ---
 
-# 📌 Summary
+## Environment variables (production)
 
-BroCode is a modern full-stack AI application built using:
+| Variable | Notes |
+|---|---|
+| `MONGODB_URI` | Atlas connection string |
+| `JWT_SECRET` | Min 32-char random key |
+| `GEMINI_API_KEY` | Google AI Studio key |
+| `ALLOWED_ORIGINS` | Comma-separated frontend origins |
+| `REDIS_URL` | Auto-injected by Railway |
+| `SPRING_PROFILES_ACTIVE` | Set to `prod` to enable Redis sessions |
+| `COOKIE_SECURE` | `true` for HTTPS |
+| `COOKIE_SAME_SITE` | `None` for cross-origin deployments |
 
-- ⚛️ React + TypeScript (Frontend)
-- ☕ Spring Boot + Spring Security (Backend)
-- 🧠 Custom AI Agent Layer
-- 🗄️ JPA-based Persistence
-- 📡 Streaming AI Responses
+---
 
-Designed for scalability, maintainability, and real-time AI-powered coding assistance.
+## API
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| POST | `/api/user/register` | Public | Create account |
+| POST | `/api/user/login` | Public | Authenticate; sets HttpOnly cookie |
+| POST | `/api/user/logout` | Public | Clears cookie |
+| GET | `/api/user/profile` | Required | Get username |
+| PATCH | `/api/user/profile` | Required | Update username |
+| POST | `/api/bro/broCode` | Required | SSE streaming chat |
+| GET | `/api/bro/sessions` | Required | List sessions |
+| DELETE | `/api/bro/session/{id}` | Required | Delete session |
+| GET | `/actuator/health` | Public | Health probe |
+
+---
+
+## Architecture
+
+See [`design/`](design/) for detailed docs:
+
+- [`HLD.md`](design/HLD.md) — system architecture diagram
+- [`LLD.md`](design/LLD.md) — class diagrams, filter chain, data models
+- [`FLOW.md`](design/FLOW.md) — sequence diagrams for every user journey
+- [`INFO.md`](design/INFO.md) — full tech stack, design decisions, env vars
